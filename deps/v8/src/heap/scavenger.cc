@@ -61,27 +61,6 @@ class IterateAndScavengePromotedObjectsVisitor final : public ObjectVisitor {
     VisitPointersImpl(host, start, end);
   }
 
-  V8_INLINE void VisitCodePointer(Code host, CodeObjectSlot slot) final {
-    CHECK(V8_EXTERNAL_CODE_SPACE_BOOL);
-    // InstructionStream slots never appear in new space because
-    // Code objects, the only object that can contain code pointers, are
-    // always allocated in the old space.
-    UNREACHABLE();
-  }
-
-  V8_INLINE void VisitCodeTarget(RelocInfo* rinfo) final {
-    InstructionStream target =
-        InstructionStream::FromTargetAddress(rinfo->target_address());
-    HandleSlot(rinfo->instruction_stream(), FullHeapObjectSlot(&target),
-               target);
-  }
-  V8_INLINE void VisitEmbeddedPointer(RelocInfo* rinfo) final {
-    PtrComprCageBase cage_base = GetPtrComprCageBase(rinfo->code());
-    HeapObject heap_object = rinfo->target_object(cage_base);
-    HandleSlot(rinfo->instruction_stream(), FullHeapObjectSlot(&heap_object),
-               heap_object);
-  }
-
   inline void VisitEphemeron(HeapObject obj, int entry, ObjectSlot key,
                              ObjectSlot value) override {
     DCHECK(Heap::IsLargeObject(obj) || obj.IsEphemeronHashTable());
@@ -94,6 +73,14 @@ class IterateAndScavengePromotedObjectsVisitor final : public ObjectVisitor {
     } else {
       VisitPointer(obj, key);
     }
+  }
+
+  // Special cases: Unreachable visitors for objects that are never found in the
+  // young generation and thus cannot be found when iterating promoted objects.
+  void VisitCodePointer(Code, CodeObjectSlot) final { UNREACHABLE(); }
+  void VisitCodeTarget(InstructionStream, RelocInfo*) final { UNREACHABLE(); }
+  void VisitEmbeddedPointer(InstructionStream, RelocInfo*) final {
+    UNREACHABLE();
   }
 
  private:
@@ -374,7 +361,8 @@ void ScavengerCollector::CollectGarbage() {
       // global handles separately.
       base::EnumSet<SkipRoot> options(
           {SkipRoot::kExternalStringTable, SkipRoot::kGlobalHandles,
-           SkipRoot::kOldGeneration, SkipRoot::kConservativeStack});
+           SkipRoot::kTracedHandles, SkipRoot::kOldGeneration,
+           SkipRoot::kConservativeStack, SkipRoot::kReadOnlyBuiltins});
       if (V8_UNLIKELY(v8_flags.scavenge_separate_stack_scanning)) {
         options.Add(SkipRoot::kStack);
       }

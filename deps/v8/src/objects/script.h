@@ -161,10 +161,12 @@ class Script : public TorqueGeneratedScript<Script, Struct> {
   // Retrieve source position from where eval was called.
   static int GetEvalPosition(Isolate* isolate, Handle<Script> script);
 
-  // Init line_ends array with source code positions of line ends.
-  template <typename IsolateT>
-  EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE)
-  static void InitLineEnds(IsolateT* isolate, Handle<Script> script);
+  // Initialize line_ends array with source code positions of line ends if
+  // it doesn't exist yet.
+  static inline void InitLineEnds(Isolate* isolate, Handle<Script> script);
+  static inline void InitLineEnds(LocalIsolate* isolate, Handle<Script> script);
+
+  inline bool has_line_ends() const;
 
   // Carries information about a source position.
   struct PositionInfo {
@@ -177,7 +179,7 @@ class Script : public TorqueGeneratedScript<Script, Struct> {
   };
 
   // Specifies whether to add offsets to position infos.
-  enum OffsetFlag { NO_OFFSET = 0, WITH_OFFSET = 1 };
+  enum class OffsetFlag { kNoOffset, kWithOffset };
 
   // Retrieves information about the given position, optionally with an offset.
   // Returns false on failure, and otherwise writes into the given info object
@@ -187,9 +189,11 @@ class Script : public TorqueGeneratedScript<Script, Struct> {
   // The non-static version is not allocating and safe for unhandlified
   // callsites.
   static bool GetPositionInfo(Handle<Script> script, int position,
-                              PositionInfo* info, OffsetFlag offset_flag);
-  V8_EXPORT_PRIVATE bool GetPositionInfo(int position, PositionInfo* info,
-                                         OffsetFlag offset_flag) const;
+                              PositionInfo* info,
+                              OffsetFlag offset_flag = OffsetFlag::kWithOffset);
+  V8_EXPORT_PRIVATE bool GetPositionInfo(
+      int position, PositionInfo* info,
+      OffsetFlag offset_flag = OffsetFlag::kWithOffset) const;
 
   // Tells whether this script should be subject to debugging, e.g. for
   // - scope inspection
@@ -237,6 +241,11 @@ class Script : public TorqueGeneratedScript<Script, Struct> {
   DEFINE_TORQUE_GENERATED_SCRIPT_FLAGS()
 
   TQ_OBJECT_CONSTRUCTORS(Script)
+
+  template <typename IsolateT>
+  EXPORT_TEMPLATE_DECLARE(V8_EXPORT_PRIVATE)
+  static void V8_PRESERVE_MOST
+      InitLineEndsInternal(IsolateT* isolate, Handle<Script> script);
 };
 
 }  // namespace internal

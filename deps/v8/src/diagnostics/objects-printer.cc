@@ -679,10 +679,10 @@ void JSGeneratorObject::JSGeneratorObjectPrint(std::ostream& os) {
         os << source_position();
         os << " (";
         script_name.PrintUC16(os);
-        int lin = script.GetLineNumber(source_position()) + 1;
-        int col = script.GetColumnNumber(source_position()) + 1;
-        os << ", lin " << lin;
-        os << ", col " << col;
+        Script::PositionInfo info;
+        script.GetPositionInfo(source_position(), &info);
+        os << ", line " << info.line + 1;
+        os << ", column " << info.column + 1;
       } else {
         os << "unavailable";
       }
@@ -1234,7 +1234,6 @@ void FeedbackVector::FeedbackVectorPrint(std::ostream& os) {
   os << "\n - maybe has maglev code: " << maybe_has_maglev_code();
   os << "\n - maybe has turbofan code: " << maybe_has_turbofan_code();
   os << "\n - invocation count: " << invocation_count();
-  os << "\n - profiler ticks: " << profiler_ticks();
   os << "\n - closure feedback cell array: ";
   closure_feedback_cell_array().ClosureFeedbackCellArrayPrint(os);
 
@@ -1356,7 +1355,10 @@ void FeedbackNexus::Print(std::ostream& os) {
         }
         for (int i = 0; i < array.length(); i += 2) {
           os << "\n   " << Brief(array.Get(i)) << ": ";
-          StoreHandler::PrintHandler(array.Get(i + 1).GetHeapObjectOrSmi(), os);
+          if (!array.Get(i + 1).IsCleared()) {
+            StoreHandler::PrintHandler(array.Get(i + 1).GetHeapObjectOrSmi(),
+                                       os);
+          }
         }
       }
       break;
@@ -1614,6 +1616,16 @@ void JSIteratorTakeHelper::JSIteratorTakeHelperPrint(std::ostream& os) {
 void JSIteratorDropHelper::JSIteratorDropHelperPrint(std::ostream& os) {
   JSIteratorHelperPrintHeader(os, "JSIteratorDropHelper");
   os << "\n - remaining: " << remaining();
+  JSObjectPrintBody(os, *this);
+}
+
+void JSIteratorFlatMapHelper::JSIteratorFlatMapHelperPrint(std::ostream& os) {
+  JSIteratorHelperPrintHeader(os, "JSIteratorFlatMapHelper");
+  os << "\n - mapper: " << Brief(mapper());
+  os << "\n - counter: " << counter();
+  os << "\n - innerIterator.object" << Brief(innerIterator_object());
+  os << "\n - innerIterator.next" << Brief(innerIterator_next());
+  os << "\n - innerAlive" << innerAlive();
   JSObjectPrintBody(os, *this);
 }
 
@@ -1893,9 +1905,9 @@ void Code::CodePrint(std::ostream& os) {
   if (has_instruction_stream()) {
     os << "\n - instruction_stream: " << Brief(raw_instruction_stream());
   }
-  os << "\n - code_entry_point: "
-     << reinterpret_cast<void*>(code_entry_point());
-  os << "\n - kind_specific_flags: " << kind_specific_flags(kRelaxedLoad);
+  os << "\n - instruction_start: "
+     << reinterpret_cast<void*>(instruction_start());
+  os << "\n - flags: " << flags(kRelaxedLoad);
   os << "\n";
   if (has_instruction_stream()) {
     instruction_stream().Print(os);
@@ -2137,6 +2149,7 @@ void WasmSuspenderObject::WasmSuspenderObjectPrint(std::ostream& os) {
   os << "\n - continuation: " << continuation();
   os << "\n - parent: " << parent();
   os << "\n - state: " << state();
+  os << "\n - wasm_to_js_counter: " << wasm_to_js_counter();
   os << "\n";
 }
 
@@ -2179,8 +2192,8 @@ void WasmInstanceObject::WasmInstanceObjectPrint(std::ostream& os) {
   PRINT_WASM_INSTANCE_FIELD(globals_start, to_void_ptr);
   PRINT_WASM_INSTANCE_FIELD(imported_mutable_globals, Brief);
   PRINT_WASM_INSTANCE_FIELD(indirect_function_table_size, +);
-  PRINT_WASM_INSTANCE_FIELD(indirect_function_table_sig_ids, to_void_ptr);
-  PRINT_WASM_INSTANCE_FIELD(indirect_function_table_targets, to_void_ptr);
+  PRINT_WASM_INSTANCE_FIELD(indirect_function_table_sig_ids, Brief);
+  PRINT_WASM_INSTANCE_FIELD(indirect_function_table_targets, Brief);
   PRINT_WASM_INSTANCE_FIELD(isorecursive_canonical_types,
                             reinterpret_cast<const uint32_t*>);
   PRINT_WASM_INSTANCE_FIELD(jump_table_start, to_void_ptr);
@@ -2289,12 +2302,8 @@ void WasmIndirectFunctionTable::WasmIndirectFunctionTablePrint(
     std::ostream& os) {
   PrintHeader(os, "WasmIndirectFunctionTable");
   os << "\n - size: " << size();
-  os << "\n - sig_ids: " << static_cast<void*>(sig_ids());
-  os << "\n - targets: " << static_cast<void*>(targets());
-  if (has_managed_native_allocations()) {
-    os << "\n - managed_native_allocations: "
-       << Brief(managed_native_allocations());
-  }
+  os << "\n - sig_ids: " << Brief(sig_ids());
+  os << "\n - targets: " << Brief(targets());
   os << "\n - refs: " << Brief(refs());
   os << "\n";
 }

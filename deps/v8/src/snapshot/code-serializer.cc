@@ -107,7 +107,8 @@ AlignedCachedData* CodeSerializer::SerializeSharedFunctionInfo(
   return data.GetScriptData();
 }
 
-void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
+void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj,
+                                         SlotType slot_type) {
   ReadOnlyRoots roots(isolate());
   InstanceType instance_type;
   {
@@ -123,7 +124,8 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
 
     if (ElideObject(raw)) {
       AllowGarbageCollection allow_gc;
-      return SerializeObject(roots.undefined_value_handle());
+      return SerializeObject(roots.undefined_value_handle(),
+                             SlotType::kAnySlot);
     }
   }
 
@@ -149,7 +151,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
       host_options = handle(script_obj.host_defined_options(), isolate());
       script_obj.set_host_defined_options(roots.empty_fixed_array());
     }
-    SerializeGeneric(obj);
+    SerializeGeneric(obj, slot_type);
     {
       DisallowGarbageCollection no_gc;
       Script script_obj = Script::cast(*obj);
@@ -182,7 +184,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
       }
       DCHECK(!sfi.HasDebugInfo());
     }
-    SerializeGeneric(obj);
+    SerializeGeneric(obj, slot_type);
     // Restore debug info
     if (!debug_info.is_null()) {
       DisallowGarbageCollection no_gc;
@@ -199,7 +201,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
         Handle<UncompiledDataWithoutPreparseDataWithJob>::cast(obj);
     Address job = data->job();
     data->set_job(kNullAddress);
-    SerializeGeneric(data);
+    SerializeGeneric(data, slot_type);
     data->set_job(job);
     return;
   } else if (InstanceTypeChecker::IsUncompiledDataWithPreparseDataAndJob(
@@ -208,7 +210,7 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
         Handle<UncompiledDataWithPreparseDataAndJob>::cast(obj);
     Address job = data->job();
     data->set_job(kNullAddress);
-    SerializeGeneric(data);
+    SerializeGeneric(data, slot_type);
     data->set_job(job);
     return;
   }
@@ -235,13 +237,14 @@ void CodeSerializer::SerializeObjectImpl(Handle<HeapObject> obj) {
   CHECK(!InstanceTypeChecker::IsJSFunction(instance_type) &&
         !InstanceTypeChecker::IsContext(instance_type));
 
-  SerializeGeneric(obj);
+  SerializeGeneric(obj, slot_type);
 }
 
-void CodeSerializer::SerializeGeneric(Handle<HeapObject> heap_object) {
+void CodeSerializer::SerializeGeneric(Handle<HeapObject> heap_object,
+                                      SlotType slot_type) {
   // Object has not yet been serialized.  Serialize it here.
   ObjectSerializer serializer(this, heap_object, &sink_);
-  serializer.Serialize();
+  serializer.Serialize(slot_type);
 }
 
 namespace {
@@ -285,8 +288,10 @@ void CreateInterpreterDataForDeserializedCode(Isolate* isolate,
     if (!log_code_creation) continue;
     Handle<AbstractCode> abstract_code = Handle<AbstractCode>::cast(code);
     Script::InitLineEnds(isolate, script);
-    int line_num = script->GetLineNumber(info->StartPosition()) + 1;
-    int column_num = script->GetColumnNumber(info->StartPosition()) + 1;
+    Script::PositionInfo position_info;
+    script->GetPositionInfo(info->StartPosition(), &position_info);
+    int line_num = position_info.line + 1;
+    int column_num = position_info.column + 1;
     PROFILE(isolate,
             CodeCreateEvent(LogEventListener::CodeTag::kFunction, abstract_code,
                             info, name_handle, line_num, column_num));
@@ -365,10 +370,10 @@ void FinalizeDeserialization(Isolate* isolate,
                                                                shared_info);
           }
           DisallowGarbageCollection no_gc;
-          int line_num =
-              script->GetLineNumber(shared_info->StartPosition()) + 1;
-          int column_num =
-              script->GetColumnNumber(shared_info->StartPosition()) + 1;
+          Script::PositionInfo position_info;
+          script->GetPositionInfo(shared_info->StartPosition(), &position_info);
+          int line_num = position_info.line + 1;
+          int column_num = position_info.column + 1;
           PROFILE(isolate,
                   CodeCreateEvent(
                       shared_info->is_toplevel()
